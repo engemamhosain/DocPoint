@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Base user profile for patients, doctors, and admins.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient", "doctor", "admin"] },
+        "photoURL": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Doctor": {
+      "title": "Doctor",
+      "description": "Professional profile for doctors.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "specialty": { "type": "string" },
+        "bio": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "experience": { "type": "number" },
+        "rating": { "type": "number" },
+        "availability": {
+          "type": "object",
+          "description": "Weekly availability schedule"
+        }
+      },
+      "required": ["uid", "specialty", "clinicId"]
+    },
+    "Clinic": {
+      "title": "Clinic",
+      "description": "Clinic or hospital information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "name", "address"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Booking record between a patient and a doctor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "clinicId": { "type": "string" },
+        "dateTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled", "completed"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "patientId", "doctorId", "dateTime", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/doctors/{doctorId}": {
+      "schema": "Doctor",
+      "description": "Doctor professional details"
+    },
+    "/clinics/{clinicId}": {
+      "schema": "Clinic",
+      "description": "Clinic information"
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Appointment records"
+    }
+  }
+}
