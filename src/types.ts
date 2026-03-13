@@ -18,6 +18,9 @@ export interface DoctorProfile {
   rating?: number;
   displayName?: string; // Denormalized for ease
   photoURL?: string; // Denormalized for ease
+  availability?: {
+    [key: string]: string[]; // e.g., { 'Monday': ['09:00', '10:00'] }
+  };
 }
 
 export interface Clinic {

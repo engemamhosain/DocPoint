@@ -280,9 +280,39 @@ function AppContent() {
   const seedData = async () => {
     if (doctors.length > 0) return;
     const sampleDoctors = [
-      { uid: 'doc-1', displayName: 'Sarah Jenkins', specialty: 'Cardiology', clinicId: 'clinic-1' },
-      { uid: 'doc-2', displayName: 'Michael Chen', specialty: 'Pediatrics', clinicId: 'clinic-1' },
-      { uid: 'doc-3', displayName: 'Elena Rodriguez', specialty: 'Dermatology', clinicId: 'clinic-1' }
+      { 
+        uid: 'doc-1', 
+        displayName: 'Sarah Jenkins', 
+        specialty: 'Cardiology', 
+        clinicId: 'clinic-1',
+        availability: {
+          'Monday': ['09:00', '10:00', '11:00'],
+          'Wednesday': ['14:00', '15:00', '16:00'],
+          'Friday': ['09:00', '10:00']
+        }
+      },
+      { 
+        uid: 'doc-2', 
+        displayName: 'Michael Chen', 
+        specialty: 'Pediatrics', 
+        clinicId: 'clinic-1',
+        availability: {
+          'Tuesday': ['10:00', '11:00', '12:00'],
+          'Thursday': ['10:00', '11:00', '12:00'],
+          'Saturday': ['09:00', '10:00']
+        }
+      },
+      { 
+        uid: 'doc-3', 
+        displayName: 'Elena Rodriguez', 
+        specialty: 'Dermatology', 
+        clinicId: 'clinic-1',
+        availability: {
+          'Monday': ['14:00', '15:00'],
+          'Tuesday': ['14:00', '15:00'],
+          'Wednesday': ['09:00', '10:00', '11:00']
+        }
+      }
     ];
     for (const d of sampleDoctors) {
       await setDoc(doc(db, 'doctors', d.uid), d);
@@ -292,6 +322,16 @@ function AppContent() {
   useEffect(() => {
     if (doctors.length === 0 && user) seedData();
   }, [doctors, user]);
+
+  useEffect(() => {
+    if (selectedDoctor && bookingDate) {
+      const dayName = format(bookingDate, 'EEEE');
+      const slots = selectedDoctor.availability?.[dayName] || [];
+      if (slots.length > 0 && !slots.includes(bookingTime)) {
+        setBookingTime(slots[0]);
+      }
+    }
+  }, [selectedDoctor, bookingDate]);
 
   const handleBookAppointment = async () => {
     if (!profile || !selectedDoctor) return;
@@ -305,24 +345,79 @@ function AppContent() {
       return;
     }
 
-    const newAppointment: Omit<Appointment, 'id'> = {
+    const appointmentData = {
       patientId: profile.uid,
+      patientName: profile.displayName,
+      patientEmail: profile.email,
       doctorId: selectedDoctor.uid,
-      clinicId: selectedDoctor.clinicId,
-      dateTime: Timestamp.fromDate(appointmentDate),
-      status: 'pending',
-      createdAt: Timestamp.now(),
       doctorName: selectedDoctor.displayName,
+      clinicId: selectedDoctor.clinicId,
+      dateTime: Timestamp.fromDate(appointmentDate).toMillis(), // Serialize for payment gateway
+      status: 'pending',
+      createdAt: Timestamp.now().toMillis(),
     };
 
     try {
-      await addDoc(collection(db, 'appointments'), newAppointment);
-      setSelectedDoctor(null);
-      alert('Appointment booked successfully!');
+      // Initiate SSLCommerz Payment
+      const response = await fetch('/api/payment/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: 15,
+          appointmentData
+        })
+      });
+
+      const result = await response.json();
+      if (result.url) {
+        // Redirect to SSLCommerz Gateway
+        window.location.href = result.url;
+      } else {
+        alert('Failed to initiate payment: ' + (result.error || 'Unknown error'));
+      }
     } catch (error) {
       console.error('Booking failed', error);
+      alert('An error occurred during booking initiation.');
     }
   };
+
+  // Handle Payment Redirect Callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentStatus = params.get('payment');
+    const rawData = params.get('data');
+
+    if (paymentStatus === 'success' && rawData && profile) {
+      const finalizeBooking = async () => {
+        try {
+          const data = JSON.parse(decodeURIComponent(rawData));
+          const newAppointment: Omit<Appointment, 'id'> = {
+            patientId: data.patientId,
+            doctorId: data.doctorId,
+            clinicId: data.clinicId,
+            dateTime: Timestamp.fromMillis(data.dateTime),
+            status: 'confirmed', // Mark as confirmed after payment
+            createdAt: Timestamp.fromMillis(data.createdAt),
+            doctorName: data.doctorName,
+          };
+          
+          await addDoc(collection(db, 'appointments'), newAppointment);
+          // Clear URL params
+          window.history.replaceState({}, document.title, "/");
+          alert('Payment successful! Your appointment is confirmed.');
+        } catch (error) {
+          console.error('Finalization failed', error);
+        }
+      };
+      finalizeBooking();
+    } else if (paymentStatus === 'fail') {
+      alert('Payment failed. Please try again.');
+      window.history.replaceState({}, document.title, "/");
+    } else if (paymentStatus === 'cancel') {
+      alert('Payment cancelled.');
+      window.history.replaceState({}, document.title, "/");
+    }
+  }, [profile]);
 
   const updateAppointmentStatus = async (id: string, status: Appointment['status']) => {
     try {
@@ -620,22 +715,32 @@ function AppContent() {
               <div>
                 <label className="block text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Select Time</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'].map((time) => (
-                    <button
-                      key={time}
-                      onClick={() => setBookingTime(time)}
-                      className={cn(
-                        "py-2 rounded-xl text-sm font-medium transition-all",
-                        bookingTime === time ? "bg-[#5A5A40] text-white" : "bg-white border border-gray-100 hover:bg-gray-50"
-                      )}
-                    >
-                      {time}
-                    </button>
-                  ))}
+                  {(selectedDoctor?.availability?.[format(bookingDate, 'EEEE')] || []).length > 0 ? (
+                    (selectedDoctor?.availability?.[format(bookingDate, 'EEEE')] || []).map((time) => (
+                      <button
+                        key={time}
+                        onClick={() => setBookingTime(time)}
+                        className={cn(
+                          "py-2 rounded-xl text-sm font-medium transition-all",
+                          bookingTime === time ? "bg-[#5A5A40] text-white" : "bg-white border border-gray-100 hover:bg-gray-50"
+                        )}
+                      >
+                        {time}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="col-span-3 py-4 text-center text-gray-400 text-sm italic">
+                      No slots available for this day.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <Button onClick={handleBookAppointment} className="w-full py-4 mt-4">
+              <Button 
+                onClick={handleBookAppointment} 
+                className="w-full py-4 mt-4"
+                disabled={!(selectedDoctor?.availability?.[format(bookingDate, 'EEEE')] || []).includes(bookingTime)}
+              >
                 Confirm Booking
               </Button>
             </div>
